@@ -20,6 +20,9 @@ class CertificateDesignSchema(BaseModel):
     issuerName: Optional[str] = "Prof. A. K. Sharma"
     issuerTitle: Optional[str] = "Convener & Head of Incubation"
     customMessage: Optional[str] = None
+    logoUrl: Optional[str] = None
+    signatureUrl: Optional[str] = None
+    sealUrl: Optional[str] = None
 
 
 @router.post("/generate/{team_id}")
@@ -29,7 +32,7 @@ async def generate(
     admin=Depends(admin_required),
 ):
     """
-    Generate certificate for a single team with customizable design options.
+    Generate or edit certificate for a single team with customizable design and image options.
     """
     options = payload.model_dump() if payload else {}
     try:

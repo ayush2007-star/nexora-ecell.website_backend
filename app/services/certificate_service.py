@@ -56,6 +56,10 @@ class CertificateService:
             else "In recognition of outstanding innovative thinking, active problem-solving, and dedication to entrepreneurial excellence."
         )
 
+        logo_url = options.get("logoUrl") if options.get("logoUrl") is not None else (existing.get("logoUrl") if existing else None)
+        signature_url = options.get("signatureUrl") if options.get("signatureUrl") is not None else (existing.get("signatureUrl") if existing else None)
+        seal_url = options.get("sealUrl") if options.get("sealUrl") is not None else (existing.get("sealUrl") if existing else None)
+
         member_names = [m.get("memberName") for m in members if m.get("memberName")]
 
         certificate = {
@@ -75,6 +79,9 @@ class CertificateService:
             "issuerName": issuer_name,
             "issuerTitle": issuer_title,
             "customMessage": custom_message,
+            "logoUrl": logo_url,
+            "signatureUrl": signature_url,
+            "sealUrl": seal_url,
             "generatedAt": existing.get("generatedAt") if existing else now,
             "updatedAt": now,
             "status": "Generated",

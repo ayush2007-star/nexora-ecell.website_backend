@@ -60,6 +60,7 @@ async def lifespan(app: FastAPI):
         UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
         (UPLOADS_DIR / "profile").mkdir(parents=True, exist_ok=True)
         (UPLOADS_DIR / "pitchdeck").mkdir(parents=True, exist_ok=True)
+        (UPLOADS_DIR / "images").mkdir(parents=True, exist_ok=True)
         CERTIFICATES_DIR.mkdir(parents=True, exist_ok=True)
 
         logger.info("Upload and certificate directories verified.")
@@ -69,6 +70,17 @@ async def lifespan(app: FastAPI):
         # ---------------------------------------------
 
         await connect_db()
+
+        # ---------------------------------------------
+        # Seed Super Admin and Default Events
+        # ---------------------------------------------
+
+        try:
+            from app.database.seed import seed_admin_user, seed_default_events
+            await seed_admin_user()
+            await seed_default_events()
+        except Exception as seed_err:
+            logger.warning("Database seeding notice: %s", seed_err)
 
         # ---------------------------------------------
         # Create indexes
