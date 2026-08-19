@@ -19,7 +19,7 @@ from app.api.v1.upload import router as upload_router
 from app.config import settings
 from app.core.exceptions import validation_exception_handler
 from app.database.indexes import create_indexes
-from app.database.mongodb import connect_db, close_db
+from app.database.mongodb import connect_db, close_db, mongodb
 
 
 logger = logging.getLogger(__name__)
@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOADS_DIR = BASE_DIR / "uploads"
+CERTIFICATES_DIR = BASE_DIR / "certificates"
 
 
 # ---------------------------------------------------------
@@ -43,9 +44,9 @@ async def lifespan(app: FastAPI):
     Application startup and shutdown lifecycle.
 
     Startup:
-        1. Ensure required directories exist.
-        2. Connect to MongoDB.
-        3. Create MongoDB indexes.
+        1. Ensure required storage directories exist.
+        2. Connect to MongoDB (with SSL/certifi support).
+        3. Create MongoDB indexes safely.
 
     Shutdown:
         1. Close MongoDB connection.
@@ -59,8 +60,9 @@ async def lifespan(app: FastAPI):
         UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
         (UPLOADS_DIR / "profile").mkdir(parents=True, exist_ok=True)
         (UPLOADS_DIR / "pitchdeck").mkdir(parents=True, exist_ok=True)
+        CERTIFICATES_DIR.mkdir(parents=True, exist_ok=True)
 
-        logger.info("Upload directories verified.")
+        logger.info("Upload and certificate directories verified.")
 
         # ---------------------------------------------
         # Connect database
@@ -68,15 +70,16 @@ async def lifespan(app: FastAPI):
 
         await connect_db()
 
-        logger.info("MongoDB connection established.")
-
         # ---------------------------------------------
         # Create indexes
         # ---------------------------------------------
 
-        await create_indexes()
+        try:
+            await create_indexes()
+            logger.info("MongoDB indexes verified.")
+        except Exception as idx_err:
+            logger.warning("MongoDB index creation notice: %s", idx_err)
 
-        logger.info("MongoDB indexes verified.")
         logger.info("Nexora server started successfully.")
 
         yield
@@ -125,44 +128,48 @@ app.add_exception_handler(
 
 
 # ---------------------------------------------------------
-# CORS
+# CORS (Production & Development Friendly)
 # ---------------------------------------------------------
 
-# Keep development flexible, but don't hard-code production
-# domains into the application source.
-#
-# If your settings object provides FRONTEND_URLS, use it.
-# Otherwise fall back to localhost development URLs.
+frontend_origins_raw = getattr(settings, "FRONTEND_URLS", "*")
 
-frontend_origins = getattr(settings, "FRONTEND_URLS", None)
-
-if isinstance(frontend_origins, str):
-    allowed_origins = [
+if isinstance(frontend_origins_raw, str):
+    parsed_origins = [
         origin.strip()
-        for origin in frontend_origins.split(",")
+        for origin in frontend_origins_raw.split(",")
         if origin.strip()
     ]
-elif isinstance(frontend_origins, (list, tuple)):
-    allowed_origins = [
+elif isinstance(frontend_origins_raw, (list, tuple)):
+    parsed_origins = [
         str(origin).strip()
-        for origin in frontend_origins
+        for origin in frontend_origins_raw
         if str(origin).strip()
     ]
 else:
-    allowed_origins = [
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173",
-    ]
+    parsed_origins = ["*"]
 
+# Default development origins
+dev_origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:4173",
+]
+
+if "*" in parsed_origins:
+    allowed_origins = ["*"]
+else:
+    allowed_origins = list(set(parsed_origins + dev_origins))
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept"],
+    allow_credentials=True if "*" not in allowed_origins else False,
+    allow_origin_regex=r"https://.*" if "*" in allowed_origins else None,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -170,41 +177,18 @@ app.add_middleware(
 # API Routes
 # ---------------------------------------------------------
 
-app.include_router(
-    auth_router,
-)
-
-app.include_router(
-    registration_router,
-)
-
-app.include_router(
-    admin_router,
-)
-
-app.include_router(
-    upload_router,
-)
-
-app.include_router(
-    certificate_router,
-)
-
-app.include_router(
-    event_router,
-)
-
-app.include_router(
-    notification_router,
-)
-
-app.include_router(
-    activity_router,
-)
+app.include_router(auth_router)
+app.include_router(registration_router)
+app.include_router(admin_router)
+app.include_router(upload_router)
+app.include_router(certificate_router)
+app.include_router(event_router)
+app.include_router(notification_router)
+app.include_router(activity_router)
 
 
 # ---------------------------------------------------------
-# Static uploads
+# Static uploads & certificates
 # ---------------------------------------------------------
 
 app.mount(
@@ -228,11 +212,12 @@ async def root():
         "message": "Welcome to Nexora Innovation Portal API.",
         "version": settings.APP_VERSION,
         "status": "running",
+        "docs": "/docs",
     }
 
 
 # ---------------------------------------------------------
-# Health Check
+# Health Check (Used by Render / Cloud monitors)
 # ---------------------------------------------------------
 
 @app.get(
@@ -241,18 +226,23 @@ async def root():
 )
 async def health():
     """
-    Basic application health endpoint.
-
-    Database connectivity is verified by the database layer
-    during startup. This endpoint intentionally remains lightweight.
+    Health check endpoint for Render, container orchestrators, and uptime monitors.
     """
+    db_status = "disconnected"
+    try:
+        if mongodb.client is not None:
+            await mongodb.client.admin.command("ping")
+            db_status = "connected"
+    except Exception as e:
+        db_status = f"unreachable ({str(e)})"
 
     return {
         "success": True,
         "status": "healthy",
-        "database": "connected",
+        "database": db_status,
         "project": settings.APP_NAME,
         "version": settings.APP_VERSION,
+        "environment": getattr(settings, "ENVIRONMENT", "production"),
     }
 
 
