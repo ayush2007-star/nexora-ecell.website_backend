@@ -1,15 +1,18 @@
-def verify_token(token: str):
+from typing import Any
 
-    try:
+from app.core.jwt import decode_token
 
-        payload = jwt.decode(
-            token,
-            SECRET_KEY,
-            algorithms=[ALGORITHM]
-        )
 
-        return payload
+def verify_token(token: str) -> dict[str, Any] | None:
+    """
+    Verify and decode an access token.
 
-    except Exception:
+    This function is kept as the public verification helper so
+    existing code can continue importing verify_token from
+    app.utils.jwt.
+    """
 
+    if not token:
         return None
+
+    return decode_token(token)

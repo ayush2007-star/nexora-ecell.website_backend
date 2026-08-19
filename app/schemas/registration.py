@@ -68,6 +68,10 @@ class Verification(BaseModel):
 
 class RegistrationSchema(BaseModel):
 
+    eventId: Optional[str] = "EVT-IDEATHON-2026"
+
+    eventName: Optional[str] = "Nexora Ideathon 2026"
+
     leaderInfo: LeaderInfo
 
     projectInfo: ProjectInfo
@@ -86,3 +90,4 @@ class RegistrationSchema(BaseModel):
             )
 
         return members
+

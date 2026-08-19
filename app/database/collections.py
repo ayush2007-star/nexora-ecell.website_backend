@@ -16,7 +16,9 @@ def get_collections():
             "notifications": None,
             "activity_logs": None,
             "settings": None,
-            "counters": None
+            "counters": None,
+            "events": None,
+            "certificate_templates": None
         }
 
     return {
@@ -29,5 +31,7 @@ def get_collections():
         "notifications": db["notifications"],
         "activity_logs": db["activity_logs"],
         "settings": db["settings"],
-        "counters": db["counters"]
-    }
+        "counters": db["counters"],
+        "events": db["events"],
+        "certificate_templates": db["certificate_templates"]
+    }

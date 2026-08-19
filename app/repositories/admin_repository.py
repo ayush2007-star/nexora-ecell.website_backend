@@ -29,21 +29,15 @@ class AdminRepository:
         total_registrations = await teams_collection.count_documents({})
 
         pending = await teams_collection.count_documents(
-            {
-                "status": "Pending"
-            }
+            {"status": "Pending"}
         )
 
         approved = await teams_collection.count_documents(
-            {
-                "status": "Approved"
-            }
+            {"status": "Approved"}
         )
 
         rejected = await teams_collection.count_documents(
-            {
-                "status": "Rejected"
-            }
+            {"status": "Rejected"}
         )
 
         total_projects = await projects_collection.count_documents({})
@@ -66,7 +60,10 @@ class AdminRepository:
     async def registration_list():
         teams_collection = get_collections()["teams"]
 
-        cursor = teams_collection.find().sort(
+        cursor = teams_collection.find(
+            {},
+            {"_id": 0}
+        ).sort(
             "createdAt",
             -1
         )
@@ -83,26 +80,71 @@ class AdminRepository:
         collections = get_collections()
         teams = collections["teams"]
 
-        query = {}
-
-        if search:
-            query["projectName"] = {
-                "$regex": search,
-                "$options": "i"
-            }
+        match_stage = {}
 
         if status:
-            query["status"] = status
+            match_stage["status"] = status
 
-        total = await teams.count_documents(query)
+        if search:
+            regex_search = {"$regex": search.strip(), "$options": "i"}
+            match_stage["$or"] = [
+                {"teamName": regex_search},
+                {"teamId": regex_search},
+                {"leaderId": regex_search},
+            ]
 
-        cursor = (
-            teams.find(query)
-            .sort("createdAt", -1)
-            .skip((page - 1) * limit)
-            .limit(limit)
-        )
+        pipeline = [
+            {"$match": match_stage},
+            {"$sort": {"createdAt": -1}},
+            {
+                "$lookup": {
+                    "from": "users",
+                    "localField": "leaderId",
+                    "foreignField": "userId",
+                    "as": "leaderDoc"
+                }
+            },
+            {
+                "$lookup": {
+                    "from": "projects",
+                    "localField": "teamId",
+                    "foreignField": "teamId",
+                    "as": "projectDoc"
+                }
+            },
+            {
+                "$project": {
+                    "_id": 0,
+                    "teamId": 1,
+                    "teamName": 1,
+                    "leaderId": 1,
+                    "status": 1,
+                    "remarks": 1,
+                    "createdAt": 1,
+                    "leaderName": {"$arrayElemAt": ["$leaderDoc.fullName", 0]},
+                    "leaderEmail": {"$arrayElemAt": ["$leaderDoc.email", 0]},
+                    "leaderPhone": {"$arrayElemAt": ["$leaderDoc.phone", 0]},
+                    "projectName": {
+                        "$ifNull": [
+                            {"$arrayElemAt": ["$projectDoc.projectName", 0]},
+                            "$teamName"
+                        ]
+                    },
+                    "domain": {"$arrayElemAt": ["$projectDoc.domain", 0]}
+                }
+            }
+        ]
 
+        # Total count
+        total = await teams.count_documents(match_stage)
+
+        # Pagination stages
+        paginated_pipeline = pipeline + [
+            {"$skip": (page - 1) * limit},
+            {"$limit": limit}
+        ]
+
+        cursor = teams.aggregate(paginated_pipeline)
         data = await cursor.to_list(length=limit)
 
         return {
@@ -111,7 +153,7 @@ class AdminRepository:
                 "page": page,
                 "limit": limit,
                 "total": total,
-                "totalPages": (total + limit - 1) // limit
+                "totalPages": (total + limit - 1) // limit if total > 0 else 1
             }
         }
 
@@ -124,7 +166,10 @@ class AdminRepository:
         members = collections["members"]
         projects = collections["projects"]
 
-        team = await teams.find_one({"teamId": team_id})
+        team = await teams.find_one(
+            {"teamId": team_id},
+            {"_id": 0}
+        )
 
         if not team:
             return None
@@ -143,8 +188,6 @@ class AdminRepository:
             {"teamId": team_id},
             {"_id": 0}
         ).to_list(length=None)
-
-        team.pop("_id", None)
 
         return {
             "team": team,

@@ -1,9 +1,10 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.models.user import create_user
 from app.models.team import create_team
 from app.models.member import create_member
 from app.models.project import create_project
+
 from app.repositories.activity_repository import ActivityRepository
 from app.repositories.member_repository import MemberRepository
 from app.repositories.notification_repository import NotificationRepository
@@ -13,68 +14,137 @@ from app.repositories.user_repository import UserRepository
 
 
 class RegistrationService:
+    """
+    Handles the complete team registration workflow.
+    """
 
     @staticmethod
-    async def register(data):
+    async def register(data: dict):
 
         leader = data["leaderInfo"]
         project = data["projectInfo"]
         verification = data["eCellVerification"]
-        team_members = data.get("teamMembers", [])
+        team_members = data.get("teamMembers") or []
 
-        # ---------------------------------------
-        # Email Already Exists
-        # ---------------------------------------
+        # -------------------------------------------------
+        # Normalize email
+        # -------------------------------------------------
+
+        leader_email = leader["email"].strip().lower()
+
+        # -------------------------------------------------
+        # Duplicate leader email
+        # -------------------------------------------------
 
         existing_user = await UserRepository.find_by_email(
-            leader["email"]
+            leader_email
         )
 
         if existing_user:
             return {
                 "success": False,
-                "message": "Email already registered."
+                "message": "This email is already registered.",
             }
 
-        # ---------------------------------------
-        # Create Leader
-        # ---------------------------------------
+        # -------------------------------------------------
+        # Check duplicate member emails
+        # -------------------------------------------------
+
+        member_emails = []
+
+        for member in team_members:
+            email = member["memberEmail"].strip().lower()
+
+            if email == leader_email:
+                return {
+                    "success": False,
+                    "message": "Leader email cannot be used again as a team member.",
+                }
+
+            if email in member_emails:
+                return {
+                    "success": False,
+                    "message": "Duplicate team member email found.",
+                }
+
+            member_emails.append(email)
+
+        # -------------------------------------------------
+        # Check member emails against existing users
+        # -------------------------------------------------
+
+        for email in member_emails:
+            existing_member = await UserRepository.find_by_email(
+                email
+            )
+
+            if existing_member:
+                return {
+                    "success": False,
+                    "message": f"Team member email {email} is already registered.",
+                }
+
+        now = datetime.now(timezone.utc)
+
+        # -------------------------------------------------
+        # Create leader
+        # -------------------------------------------------
+
+        leader["email"] = leader_email
 
         leader_doc = await create_user(leader)
 
-        leader_result = await UserRepository.create(
+        leader_doc["createdAt"] = now
+        leader_doc["updatedAt"] = now
+
+        await UserRepository.create(
             leader_doc
         )
 
-        # ---------------------------------------
-        # Create Team
-        # ---------------------------------------
+        # -------------------------------------------------
+        # Create team
+        # -------------------------------------------------
+
+        event_id = data.get("eventId") or "EVT-IDEATHON-2026"
+        event_name = data.get("eventName") or "Nexora Ideathon 2026"
 
         team_doc = await create_team(
             leader_doc["userId"],
-            project["projectName"]
+            project["projectName"].strip(),
         )
 
-        await TeamRepository.create(team_doc)
+        team_doc["eventId"] = event_id
+        team_doc["eventName"] = event_name
+        team_doc["createdAt"] = now
+        team_doc["updatedAt"] = now
 
-        # ---------------------------------------
-        # Save Leader in Members Collection
-        # ---------------------------------------
+        await TeamRepository.create(
+            team_doc
+        )
+
+        # -------------------------------------------------
+        # Create leader member
+        # -------------------------------------------------
+
+        leader_member = {
+            "memberName": leader["fullName"],
+            "memberEmail": leader_email,
+            "memberPhone": leader["phone"],
+        }
+
+        leader_member_doc = create_member(
+            team_doc["teamId"],
+            leader_member,
+            is_leader=True,
+        )
 
         await MemberRepository.create(
-            {
-                "teamId": team_doc["teamId"],
-                "memberName": leader["fullName"],
-                "memberEmail": leader["email"],
-                "memberPhone": leader["phone"],
-                "isLeader": True,
-                "createdAt": datetime.utcnow(),
-            }
+            leader_member_doc
         )
 
-        # ---------------------------------------
-        # Save Other Members
-        # ---------------------------------------
+        # -------------------------------------------------
+        # Create additional members
+        # -------------------------------------------------
 
         if team_members:
 
@@ -82,10 +152,17 @@ class RegistrationService:
 
             for member in team_members:
 
+                member_data = {
+                    "memberName": member["memberName"].strip(),
+                    "memberEmail": member["memberEmail"].strip().lower(),
+                    "memberPhone": member["memberPhone"],
+                }
+
                 member_docs.append(
                     create_member(
                         team_doc["teamId"],
-                        member
+                        member_data,
+                        is_leader=False,
                     )
                 )
 
@@ -93,36 +170,45 @@ class RegistrationService:
                 member_docs
             )
 
-        # ---------------------------------------
-        # Create Project
-        # ---------------------------------------
+        # -------------------------------------------------
+        # Create project
+        # -------------------------------------------------
 
         project_doc = await create_project(
             team_doc["teamId"],
             project,
-            verification
+            verification,
         )
 
-        await ProjectRepository.create(project_doc)
+        project_doc["eventId"] = event_id
+        project_doc["eventName"] = event_name
+        project_doc["createdAt"] = now
 
-        # ---------------------------------------
+        await ProjectRepository.create(
+            project_doc
+        )
+
+        # -------------------------------------------------
         # Notification
-        # ---------------------------------------
+        # -------------------------------------------------
 
         await NotificationRepository.create(
             {
                 "userId": leader_doc["userId"],
                 "title": "Registration Submitted",
-                "message": "Your registration is under review.",
+                "message": (
+                    "Your NEXORA registration has been submitted "
+                    "successfully and is currently under review."
+                ),
                 "type": "info",
                 "isRead": False,
-                "createdAt": datetime.utcnow()
+                "createdAt": now,
             }
         )
 
-        # ---------------------------------------
-        # Activity Log
-        # ---------------------------------------
+        # -------------------------------------------------
+        # Activity log
+        # -------------------------------------------------
 
         await ActivityRepository.create(
             {
@@ -130,18 +216,69 @@ class RegistrationService:
                 "role": "leader",
                 "action": "REGISTER",
                 "module": "Registration",
+                "teamId": team_doc["teamId"],
                 "description": "Team registration submitted.",
-                "createdAt": datetime.utcnow()
+                "createdAt": now,
             }
         )
 
-        # ---------------------------------------
-        # Response
-        # ---------------------------------------
+        # -------------------------------------------------
+        # Final response
+        # -------------------------------------------------
 
         return {
             "success": True,
             "message": "Registration submitted successfully.",
             "teamId": team_doc["teamId"],
-            "userId": leader_doc["userId"]
+            "userId": leader_doc["userId"],
+            "status": "Pending",
         }
+
+    @staticmethod
+    async def track(identifier: str):
+        from app.database.collections import get_collections
+
+        clean_id = identifier.strip()
+        collections = get_collections()
+        teams = collections["teams"]
+        users = collections["users"]
+        projects = collections["projects"]
+        certificates = collections["certificates"]
+
+        team = None
+        # Try search by teamId
+        team = await teams.find_one({"teamId": clean_id}, {"_id": 0})
+
+        # If not found by teamId, check if identifier is email
+        if not team:
+            user = await users.find_one({"email": clean_id.lower()}, {"_id": 0})
+            if user:
+                team = await teams.find_one({"leaderId": user["userId"]}, {"_id": 0})
+
+        if not team:
+            return {
+                "success": False,
+                "message": "No registration found with this Team ID or Email.",
+            }
+
+        leader = await users.find_one({"userId": team.get("leaderId")}, {"_id": 0})
+        project = await projects.find_one({"teamId": team.get("teamId")}, {"_id": 0})
+        cert = await certificates.find_one({"teamId": team.get("teamId")}, {"_id": 0})
+
+        return {
+            "success": True,
+            "message": "Registration record found.",
+            "data": {
+                "teamId": team.get("teamId"),
+                "teamName": team.get("teamName"),
+                "status": team.get("status", "Pending"),
+                "remarks": team.get("remarks"),
+                "createdAt": team.get("createdAt"),
+                "leaderName": leader.get("fullName") if leader else "—",
+                "projectName": project.get("projectName") if project else team.get("teamName"),
+                "domain": project.get("domain") if project else "—",
+                "stage": project.get("stage") if project else "—",
+                "certificateId": cert.get("certificateId") if cert else None,
+                "hasCertificate": bool(cert),
+            }
+        }

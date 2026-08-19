@@ -1,53 +1,50 @@
-import os
-import uuid
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
-from fastapi import APIRouter, UploadFile, File, HTTPException
-
-from app.config import settings
 from app.core.responses import ApiResponse
+from app.dependencies.auth import get_current_user
+from app.services.upload_service import UploadService
+
 
 router = APIRouter(
     prefix="/api/v1/upload",
-    tags=["Upload"]
+    tags=["Upload"],
 )
-
-UPLOAD_DIR = os.path.join(settings.UPLOAD_FOLDER, "pitchdeck")
-
-os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 @router.post("/pitch-deck")
-async def upload_pitch_deck(file: UploadFile = File(...)):
+async def upload_pitch_deck(
+    file: UploadFile = File(...),
+    user=Depends(get_current_user),
+):
+    """
+    Upload a pitch deck.
 
-    if file.content_type != "application/pdf":
+    Authentication required.
+    Leaders and admins are allowed.
+    """
+
+    role = str(user.get("role", "")).upper()
+
+    if role not in {"LEADER", "ADMIN"}:
         raise HTTPException(
-            status_code=400,
-            detail="Only PDF files are allowed."
+            status_code=403,
+            detail="Only team leaders or admins can upload pitch decks.",
         )
 
-    content = await file.read()
+    try:
+        result = await UploadService.save_pitch_deck(file)
 
-    if len(content) > 10 * 1024 * 1024:
+    except ValueError as exc:
         raise HTTPException(
             status_code=400,
-            detail="Maximum file size is 10 MB."
-        )
-
-    filename = f"{uuid.uuid4().hex}.pdf"
-
-    filepath = os.path.join(
-        UPLOAD_DIR,
-        filename
-    )
-
-    with open(filepath, "wb") as f:
-        f.write(content)
+            detail=str(exc),
+        ) from exc
 
     return ApiResponse.success(
         message="Pitch deck uploaded successfully.",
         data={
-            "filename": filename,
-            "path": filepath
+            **result,
+            "uploadedBy": user.get("userId"),
         },
-        status_code=201
+        status_code=201,
     )
