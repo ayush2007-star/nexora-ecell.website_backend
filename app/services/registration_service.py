@@ -11,6 +11,7 @@ from app.repositories.notification_repository import NotificationRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.team_repository import TeamRepository
 from app.repositories.user_repository import UserRepository
+from app.repositories.event_repository import EventRepository
 
 
 class RegistrationService:
@@ -25,6 +26,24 @@ class RegistrationService:
         project = data["projectInfo"]
         verification = data["eCellVerification"]
         team_members = data.get("teamMembers") or []
+        event_id = data.get("eventId")
+
+        # -------------------------------------------------
+        # Validate dynamic event team size limit set by admin
+        # -------------------------------------------------
+        if event_id:
+            try:
+                event = await EventRepository.find_by_id(event_id)
+                if event:
+                    max_team_size = int(event.get("maxTeamSize", 4))
+                    max_additional_members = max(0, max_team_size - 1)
+                    if len(team_members) > max_additional_members:
+                        return {
+                            "success": False,
+                            "message": f"This event ({event.get('title')}) allows maximum {max_additional_members} additional team member(s).",
+                        }
+            except Exception:
+                pass
 
         # -------------------------------------------------
         # Normalize email

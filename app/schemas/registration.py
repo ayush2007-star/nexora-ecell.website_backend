@@ -83,11 +83,9 @@ class RegistrationSchema(BaseModel):
     @field_validator("teamMembers")
     @classmethod
     def validate_team_members(cls, members):
-
-        if len(members) > 2:
+        if len(members) > 10:
             raise ValueError(
-                "Maximum 2 additional members allowed."
+                "Maximum 10 team members allowed per registration."
             )
-
         return members
 
