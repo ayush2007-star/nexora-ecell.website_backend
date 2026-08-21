@@ -127,18 +127,6 @@ app = FastAPI(
     debug=settings.DEBUG,
     lifespan=lifespan,
 )
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://nexora-ecell.netlify.app/",
-                   "http://localhost:3000",
-                   "http://localhost:5173",
-                   ], 
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # ---------------------------------------------------------
 # Validation exception handler
 # ---------------------------------------------------------
@@ -153,43 +141,14 @@ app.add_exception_handler(
 # CORS (Production & Development Friendly)
 # ---------------------------------------------------------
 
-frontend_origins_raw = getattr(settings, "FRONTEND_URLS", "*")
-
-if isinstance(frontend_origins_raw, str):
-    parsed_origins = [
-        origin.strip()
-        for origin in frontend_origins_raw.split(",")
-        if origin.strip()
-    ]
-elif isinstance(frontend_origins_raw, (list, tuple)):
-    parsed_origins = [
-        str(origin).strip()
-        for origin in frontend_origins_raw
-        if str(origin).strip()
-    ]
-else:
-    parsed_origins = ["*"]
-
-# Default development origins
-dev_origins = [
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "http://localhost:4173",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:4173",
-]
-
-if "*" in parsed_origins:
-    allowed_origins = ["*"]
-else:
-    allowed_origins = list(set(parsed_origins + dev_origins))
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True if "*" not in allowed_origins else False,
-    allow_origin_regex=r"https://.*" if "*" in allowed_origins else None,
+    allow_origins=[
+    "https://nexora-ecell.netlify.app",
+    "http://localhost:3000",
+    "http://localhost:5173",
+],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
