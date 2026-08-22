@@ -6,17 +6,12 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.utils.jwt import verify_token
 
 
-security = HTTPBearer(
-    auto_error=True,
-)
+security = HTTPBearer(auto_error=True)
 
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> dict[str, Any]:
-    """
-    Get the authenticated user payload from the Bearer token.
-    """
 
     token = credentials.credentials
 
@@ -44,14 +39,6 @@ async def get_current_user(
 async def admin_required(
     user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """
-    Allow access only to admin users.
-
-    Role comparison is case-insensitive so both:
-        ADMIN
-        admin
-    are treated consistently.
-    """
 
     role = str(user.get("role", "")).strip().lower()
 
@@ -59,6 +46,51 @@ async def admin_required(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required.",
+        )
+
+    return user
+
+
+async def mentor_or_admin_required(
+    user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+
+    role = str(user.get("role", "")).strip().lower()
+
+    if role not in ["admin", "mentor"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Mentor or Admin access required.",
+        )
+
+    return user
+
+
+async def mentor_required(
+    user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+
+    role = str(user.get("role", "")).strip().lower()
+
+    if role not in ["mentor", "admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Mentor access required.",
+        )
+
+    return user
+
+
+async def management_required(
+    user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+
+    role = str(user.get("role", "")).strip().lower()
+
+    if role not in ["management", "admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Management access required.",
         )
 
     return user

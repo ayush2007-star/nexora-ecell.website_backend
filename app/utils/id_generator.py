@@ -27,3 +27,10 @@ async def generate_certificate_id():
     number = await CounterRepository.next_sequence("certificate")
 
     return f"CERT{number:06d}"
+async def generate_management_update_id():
+
+    number = await CounterRepository.next_sequence(
+        "management_update"
+    )
+
+    return f"UPD{number:06d}"

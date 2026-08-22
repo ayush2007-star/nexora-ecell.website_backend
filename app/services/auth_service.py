@@ -1,175 +1,536 @@
 from datetime import datetime, timezone
+
 from app.repositories.user_repository import UserRepository
 from app.core.security import hash_password, verify_password
 from app.core.jwt import create_access_token
+from app.database.collections import get_collections
 
 
 class AuthService:
 
+    # =========================================================
+    # SET PASSWORD - PARTICIPANTS
+    # =========================================================
+
     @staticmethod
     async def set_password(data):
+
         email = (data.get("email") or "").strip().lower()
+        password = (data.get("password") or "").strip()
+
+        if len(password) < 8:
+            return {
+                "success": False,
+                "message": "Password must contain at least 8 characters.",
+            }
+
         user = await UserRepository.find_by_email(email)
 
         if not user:
             return {
                 "success": False,
-                "message": "User not found."
+                "message": "No registered account found with this email.",
+            }
+
+        role = str(
+            user.get("role", "")
+        ).strip().lower()
+
+        if role not in [
+            "leader",
+            "student",
+            "participant",
+        ]:
+            return {
+                "success": False,
+                "message": (
+                    "Password setup is only available "
+                    "for participant accounts."
+                ),
             }
 
         if not user.get("isApproved"):
             return {
                 "success": False,
-                "message": "Your registration is not approved yet."
+                "message": "Your registration is not approved yet.",
             }
 
-        password = hash_password(data["password"])
+        now = datetime.now(timezone.utc)
 
         await UserRepository.update(
             user["userId"],
             {
-                "password": password
-            }
+                "password": hash_password(password),
+                "passwordSet": True,
+                "passwordSetAt": now,
+                "updatedAt": now,
+            },
         )
 
         return {
             "success": True,
-            "message": "Password created successfully."
+            "message": (
+                "Password created successfully. "
+                "You can now login."
+            ),
         }
+
+    # =========================================================
+    # LOGIN
+    # =========================================================
 
     @staticmethod
     async def login(data):
-        email = (data.get("email") or "").strip().lower()
-        password = (data.get("password") or "").strip()
-        now = datetime.now(timezone.utc)
 
-        # List of predefined super admin credentials for instant reliability
-        known_admins = {
-            "bakt.2007@gmail.com": {
-                "userId": "ADMIN-AYUSH-2007",
-                "fullName": "Ayush Tripathi",
-                "passwords": ["Ayush@2007", "Ayush@2026", "admin123", "Admin@2026"],
-            },
-            "admin@nexora-ecell.in": {
-                "userId": "ADMIN-NEXORA-01",
-                "fullName": "Nexora Administrator",
-                "passwords": ["Admin@2026", "Ayush@2007", "admin123"],
-            },
-            "admin@nexora.com": {
-                "userId": "ADMIN-NEXORA-02",
-                "fullName": "Nexora Admin",
-                "passwords": ["Admin@2026", "Ayush@2007", "admin123"],
-            },
-            "admin@gmail.com": {
-                "userId": "ADMIN-NEXORA-03",
-                "fullName": "System Administrator",
-                "passwords": ["Admin@2026", "Ayush@2007", "admin123"],
-            },
-        }
+        identifier = (
+            data.get("email") or ""
+        ).strip().lower()
 
-        # Check if login matches known super admin credentials
-        if email in known_admins and (password in known_admins[email]["passwords"] or password == "Ayush@2007"):
-            adm_info = known_admins[email]
-            admin_doc = {
-                "userId": adm_info["userId"],
-                "fullName": adm_info["fullName"],
-                "email": email,
-                "phone": "9876543210",
-                "college": "Nexora Innovation Hub",
-                "department": "Entrepreneurship & Technology",
-                "year": "Admin",
-                "rollNumber": "NXR-ADMIN-01",
-                "role": "admin",
-                "password": hash_password(password),
-                "status": "Approved",
-                "isApproved": True,
-                "approvedBy": "SYSTEM",
-                "approvedAt": now,
-                "isActive": True,
-                "createdAt": now,
-                "updatedAt": now,
+        password = (
+            data.get("password") or ""
+        ).strip()
+
+        if not identifier or not password:
+            return {
+                "success": False,
+                "message": (
+                    "Email / Team ID and password "
+                    "are required."
+                ),
             }
 
+        # =====================================================
+        # FIND USER BY EMAIL
+        # =====================================================
+
+        user = await UserRepository.find_by_email(
+            identifier
+        )
+
+        # =====================================================
+        # TEAM ID / EUREKA TEAM ID LOGIN
+        # =====================================================
+
+        if not user:
+
             try:
-                existing = await UserRepository.find_by_email(email)
-                if not existing:
-                    await UserRepository.create(admin_doc)
-                else:
-                    await UserRepository.update(
-                        existing["userId"],
+
+                collections = get_collections()
+
+                teams_col = collections["teams"]
+                projects_col = collections["projects"]
+
+                team = await teams_col.find_one(
+                    {
+                        "teamId": identifier.upper()
+                    }
+                )
+
+                # -------------------------------------------------
+                # Eureka Team ID
+                # -------------------------------------------------
+
+                if not team:
+
+                    project = await projects_col.find_one(
                         {
-                            "role": "admin",
-                            "password": hash_password(password),
-                            "isApproved": True,
-                            "status": "Approved",
-                            "isActive": True,
-                            "updatedAt": now,
+                            "eurekaTeamId": identifier
                         }
                     )
+
+                    if project:
+
+                        team = await teams_col.find_one(
+                            {
+                                "teamId": project.get(
+                                    "teamId"
+                                )
+                            }
+                        )
+
+                # -------------------------------------------------
+                # Team leader becomes login user
+                # -------------------------------------------------
+
+                if team and team.get("leaderId"):
+
+                    user = await UserRepository.find_by_user_id(
+                        team["leaderId"]
+                    )
+
             except Exception:
-                pass  # If DB is temporarily unavailable, continue with valid token
+
+                return {
+                    "success": False,
+                    "message": (
+                        "Unable to connect to the database."
+                    ),
+                }
+
+        # =====================================================
+        # USER NOT FOUND
+        # =====================================================
+
+        if not user:
+
+            return {
+                "success": False,
+                "message": (
+                    "Invalid email, Team ID, or password."
+                ),
+            }
+
+        # =====================================================
+        # ACCOUNT STATUS
+        # =====================================================
+
+        if user.get("isActive") is False:
+
+            return {
+                "success": False,
+                "message": (
+                    "This account has been disabled. "
+                    "Please contact admin."
+                ),
+            }
+
+        role = str(
+            user.get("role", "leader")
+        ).strip().lower()
+
+        # =====================================================
+        # PARTICIPANT / STUDENT / LEADER
+        # =====================================================
+
+        if role in [
+            "leader",
+            "student",
+            "participant",
+        ]:
+
+            if not user.get("isApproved"):
+
+                return {
+                    "success": False,
+                    "message": (
+                        "Your registration is still "
+                        "pending approval."
+                    ),
+                }
+
+            stored_password = user.get(
+                "password"
+            )
+
+            if not stored_password:
+
+                return {
+                    "success": False,
+                    "message": (
+                        "Password is not set yet. "
+                        "Please use Set Password first."
+                    ),
+                    "code": "PASSWORD_NOT_SET",
+                }
+
+            if not verify_password(
+                password,
+                stored_password,
+            ):
+
+                return {
+                    "success": False,
+                    "message": (
+                        "Invalid email / Team ID "
+                        "or password."
+                    ),
+                }
+
+            # -------------------------------------------------
+            # IMPORTANT:
+            # Keep existing frontend compatibility.
+            # Participant login continues returning leader.
+            # -------------------------------------------------
 
             token = create_access_token(
                 {
-                    "userId": adm_info["userId"],
-                    "role": "admin"
+                    "userId": user["userId"],
+                    "role": "leader",
+                    "fullName": user.get(
+                        "fullName",
+                        "Participant",
+                    ),
+                    "email": user.get(
+                        "email"
+                    ),
                 }
             )
 
             return {
                 "success": True,
-                "message": "Super Admin Login successful.",
+                "message": (
+                    "Participant login successful."
+                ),
                 "token": token,
                 "user": {
-                    "userId": adm_info["userId"],
-                    "fullName": adm_info["fullName"],
-                    "email": email,
-                    "role": "admin"
+                    "userId": user["userId"],
+                    "fullName": user.get(
+                        "fullName",
+                        "Participant",
+                    ),
+                    "email": user.get(
+                        "email"
+                    ),
+                    "role": "leader",
+                },
+            }
+
+        # =====================================================
+        # MENTOR / JUDGE
+        # =====================================================
+
+        if role == "mentor":
+
+            stored_password = user.get(
+                "password"
+            )
+
+            if not stored_password:
+
+                return {
+                    "success": False,
+                    "message": (
+                        "Mentor password is not configured. "
+                        "Please contact admin."
+                    ),
                 }
-            }
 
-        # General database-backed login
-        try:
-            user = await UserRepository.find_by_email(email)
-        except Exception:
+            if not verify_password(
+                password,
+                stored_password,
+            ):
+
+                return {
+                    "success": False,
+                    "message": (
+                        "Invalid mentor email "
+                        "or password."
+                    ),
+                }
+
+            token = create_access_token(
+                {
+                    "userId": user["userId"],
+                    "role": "mentor",
+                    "mentorIndex": user.get(
+                        "mentorIndex",
+                        1,
+                    ),
+                    "fullName": user.get(
+                        "fullName",
+                        "Mentor",
+                    ),
+                    "email": user.get(
+                        "email"
+                    ),
+                }
+            )
+
             return {
-                "success": False,
-                "message": "Database connection error. Please verify server status."
+                "success": True,
+                "message": (
+                    "Mentor login successful."
+                ),
+                "token": token,
+                "user": {
+                    "userId": user["userId"],
+                    "fullName": user.get(
+                        "fullName",
+                        "Mentor",
+                    ),
+                    "email": user.get(
+                        "email"
+                    ),
+                    "role": "mentor",
+                    "mentorIndex": user.get(
+                        "mentorIndex",
+                        1,
+                    ),
+                    "specialization": user.get(
+                        "department",
+                        user.get(
+                            "specialization",
+                            "Startup Mentor / Jury",
+                        ),
+                    ),
+                },
             }
 
-        if not user:
+        # =====================================================
+        # MANAGEMENT
+        # =====================================================
+
+        if role == "management":
+
+            stored_password = user.get(
+                "password"
+            )
+
+            if not stored_password:
+
+                return {
+                    "success": False,
+                    "message": (
+                        "Management password is not configured. "
+                        "Please contact admin."
+                    ),
+                }
+
+            if not verify_password(
+                password,
+                stored_password,
+            ):
+
+                return {
+                    "success": False,
+                    "message": (
+                        "Invalid management email "
+                        "or password."
+                    ),
+                }
+
+            if user.get("isActive") is False:
+
+                return {
+                    "success": False,
+                    "message": (
+                        "This management account "
+                        "is currently inactive."
+                    ),
+                }
+
+            token = create_access_token(
+                {
+                    "userId": user["userId"],
+                    "role": "management",
+                    "fullName": user.get(
+                        "fullName",
+                        "Management",
+                    ),
+                    "email": user.get(
+                        "email"
+                    ),
+                    "department": user.get(
+                        "department",
+                        "Event Management",
+                    ),
+                    "designation": user.get(
+                        "designation",
+                        "Management Staff",
+                    ),
+                }
+            )
+
             return {
-                "success": False,
-                "message": "Invalid email or password."
+                "success": True,
+                "message": (
+                    "Management login successful."
+                ),
+                "token": token,
+                "user": {
+                    "userId": user["userId"],
+                    "fullName": user.get(
+                        "fullName",
+                        "Management",
+                    ),
+                    "email": user.get(
+                        "email"
+                    ),
+                    "role": "management",
+                    "department": user.get(
+                        "department",
+                        "Event Management",
+                    ),
+                    "designation": user.get(
+                        "designation",
+                        "Management Staff",
+                    ),
+                },
             }
 
-        if not user.get("password"):
+        # =====================================================
+        # ADMIN
+        # =====================================================
+
+        if role == "admin":
+
+            stored_password = user.get(
+                "password"
+            )
+
+            if not stored_password:
+
+                return {
+                    "success": False,
+                    "message": (
+                        "Admin password is not configured."
+                    ),
+                }
+
+            if not verify_password(
+                password,
+                stored_password,
+            ):
+
+                return {
+                    "success": False,
+                    "message": (
+                        "Invalid admin email "
+                        "or password."
+                    ),
+                }
+
+            token = create_access_token(
+                {
+                    "userId": user["userId"],
+                    "role": "admin",
+                    "fullName": user.get(
+                        "fullName",
+                        "Administrator",
+                    ),
+                    "email": user.get(
+                        "email"
+                    ),
+                }
+            )
+
             return {
-                "success": False,
-                "message": "Please create password first."
+                "success": True,
+                "message": (
+                    "Admin login successful."
+                ),
+                "token": token,
+                "user": {
+                    "userId": user["userId"],
+                    "fullName": user.get(
+                        "fullName",
+                        "Administrator",
+                    ),
+                    "email": user.get(
+                        "email"
+                    ),
+                    "role": "admin",
+                },
             }
 
-        if not verify_password(password, user["password"]):
-            return {
-                "success": False,
-                "message": "Invalid email or password."
-            }
-
-        token = create_access_token(
-            {
-                "userId": user["userId"],
-                "role": user.get("role", "student")
-            }
-        )
+        # =====================================================
+        # UNKNOWN ROLE
+        # =====================================================
 
         return {
-            "success": True,
-            "message": "Login successful.",
-            "token": token,
-            "user": {
-                "userId": user["userId"],
-                "fullName": user.get("fullName", "User"),
-                "email": user.get("email", email),
-                "role": user.get("role", "student")
-            }
+            "success": False,
+            "message": (
+                "This account has an unsupported role. "
+                "Please contact admin."
+            ),
         }

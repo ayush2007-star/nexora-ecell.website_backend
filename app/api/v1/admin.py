@@ -4,8 +4,9 @@ from pydantic import BaseModel
 
 from app.core.responses import ApiResponse
 from app.dependencies.auth import admin_required
-from app.schemas.admin import RejectRegistrationSchema
+from app.schemas.admin import RejectRegistrationSchema, CreateMentorSchema, UpdateMentorSchema
 from app.services.admin_service import AdminService
+from app.services.mentor_service import MentorService
 
 
 router = APIRouter(
@@ -262,4 +263,100 @@ async def direct_register(
         message=result["message"],
         data=result.get("data"),
         status_code=status.HTTP_201_CREATED,
+    )
+
+
+# -------------------------------------------------------------
+# MENTOR & JUDGE MANAGEMENT BY ADMIN
+# -------------------------------------------------------------
+
+@router.get("/mentors")
+async def get_all_mentors(
+    user=Depends(admin_required),
+):
+    """
+    Admin: Fetch all registered Mentors / Judges with evaluation metrics.
+    """
+    result = await MentorService.get_all_mentors()
+    return ApiResponse.success(
+        message=result["message"],
+        data=result["data"],
+    )
+
+
+@router.post("/mentors", status_code=status.HTTP_201_CREATED)
+async def create_mentor(
+    payload: CreateMentorSchema,
+    user=Depends(admin_required),
+):
+    """
+    Admin: Register a new Mentor / Judge with email, password, and specialization.
+    """
+    result = await MentorService.create_mentor(
+        data=payload.model_dump(),
+        admin_user=user,
+    )
+
+    if not result["success"]:
+        return ApiResponse.error(
+            message=result["message"],
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return ApiResponse.success(
+        message=result["message"],
+        data=result["data"],
+        status_code=status.HTTP_201_CREATED,
+    )
+
+
+@router.put("/mentors/{user_id}")
+async def update_mentor(
+    user_id: str,
+    payload: UpdateMentorSchema,
+    user=Depends(admin_required),
+):
+    """
+    Admin: Update Mentor / Judge details, email ID, or password.
+    """
+    result = await MentorService.update_mentor(
+        user_id=user_id,
+        data={k: v for k, v in payload.model_dump().items() if v is not None},
+        admin_user=user,
+    )
+
+    if not result["success"]:
+        return ApiResponse.error(
+            message=result["message"],
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return ApiResponse.success(
+        message=result["message"],
+        data=result["data"],
+    )
+
+
+@router.delete("/mentors/{user_id}")
+async def delete_mentor(
+    user_id: str,
+    user=Depends(admin_required),
+):
+    """
+    Admin: Delete or remove a Mentor / Judge account.
+    """
+    result = await MentorService.delete_mentor(
+        user_id=user_id,
+        admin_user=user,
+    )
+
+    if not result["success"]:
+        return ApiResponse.error(
+            message=result["message"],
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return ApiResponse.success(
+        message=result["message"],
+        data=None,
     )

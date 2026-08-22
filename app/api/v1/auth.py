@@ -2,15 +2,16 @@ from fastapi import APIRouter
 
 from app.schemas.auth import (
     LoginSchema,
-    SetPasswordSchema
+    SetPasswordSchema,
 )
 
 from app.services.auth_service import AuthService
 from app.core.responses import ApiResponse
 
+
 router = APIRouter(
     prefix="/api/v1/auth",
-    tags=["Authentication"]
+    tags=["Authentication"],
 )
 
 
@@ -24,11 +25,12 @@ async def set_password(payload: SetPasswordSchema):
     if result["success"]:
         return ApiResponse.success(
             result["message"],
-            result
+            result,
         )
 
     return ApiResponse.error(
-        result["message"]
+        result["message"],
+        status_code=400,
     )
 
 
@@ -42,9 +44,10 @@ async def login(payload: LoginSchema):
     if result["success"]:
         return ApiResponse.success(
             result["message"],
-            result
+            result,
         )
 
     return ApiResponse.error(
-        result["message"]
+        result["message"],
+        status_code=401,
     )

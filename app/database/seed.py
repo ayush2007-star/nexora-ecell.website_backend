@@ -131,3 +131,99 @@ async def seed_default_events():
             logger.info("✅ Default events seeded successfully.")
     except Exception as e:
         logger.warning("Notice during event seeding: %s", e)
+
+
+async def seed_mentor_users():
+    """
+    Ensure the 4 Mentor / Judge accounts are created and active:
+    Mentor 1: mentor1@nexora-ecell.in (ID: MENTOR-01, Default Pass: Mentor1@2026)
+    Mentor 2: mentor2@nexora-ecell.in (ID: MENTOR-02, Default Pass: Mentor2@2026)
+    Mentor 3: mentor3@nexora-ecell.in (ID: MENTOR-03, Default Pass: Mentor3@2026)
+    Mentor 4: mentor4@nexora-ecell.in (ID: MENTOR-04, Default Pass: Mentor4@2026)
+    """
+    try:
+        collections = get_collections()
+        users = collections.get("users")
+        if users is None:
+            return
+
+        now = datetime.now(timezone.utc)
+
+        mentors = [
+            {
+                "userId": "MENTOR-01",
+                "fullName": "Mentor 1 (Judge 1)",
+                "email": "mentor1@nexora-ecell.in",
+                "passwordRaw": "Mentor1@2026",
+                "role": "mentor",
+                "mentorIndex": 1,
+            },
+            {
+                "userId": "MENTOR-02",
+                "fullName": "Mentor 2 (Judge 2)",
+                "email": "mentor2@nexora-ecell.in",
+                "passwordRaw": "Mentor2@2026",
+                "role": "mentor",
+                "mentorIndex": 2,
+            },
+            {
+                "userId": "MENTOR-03",
+                "fullName": "Mentor 3 (Judge 3)",
+                "email": "mentor3@nexora-ecell.in",
+                "passwordRaw": "Mentor3@2026",
+                "role": "mentor",
+                "mentorIndex": 3,
+            },
+            {
+                "userId": "MENTOR-04",
+                "fullName": "Mentor 4 (Judge 4)",
+                "email": "mentor4@nexora-ecell.in",
+                "passwordRaw": "Mentor4@2026",
+                "role": "mentor",
+                "mentorIndex": 4,
+            },
+        ]
+
+        for m in mentors:
+            existing = await users.find_one({"email": m["email"].lower()})
+            hashed_pwd = hash_password(m["passwordRaw"])
+            if not existing:
+                doc = {
+                    "userId": m["userId"],
+                    "fullName": m["fullName"],
+                    "email": m["email"].lower(),
+                    "phone": "9876543210",
+                    "college": "Nexora Jury Panel",
+                    "department": "Jury & Mentorship",
+                    "year": "Judge",
+                    "rollNumber": f"JURY-{m['mentorIndex']}",
+                    "role": "mentor",
+                    "mentorIndex": m["mentorIndex"],
+                    "password": hashed_pwd,
+                    "status": "Approved",
+                    "isApproved": True,
+                    "approvedBy": "SYSTEM",
+                    "approvedAt": now,
+                    "isActive": True,
+                    "createdAt": now,
+                    "updatedAt": now,
+                }
+                await users.insert_one(doc)
+                logger.info("✅ Mentor account (%s) created successfully.", m["email"])
+            else:
+                await users.update_one(
+                    {"_id": existing["_id"]},
+                    {
+                        "$set": {
+                            "fullName": m["fullName"],
+                            "role": "mentor",
+                            "mentorIndex": m["mentorIndex"],
+                            "isApproved": True,
+                            "status": "Approved",
+                            "isActive": True,
+                            "updatedAt": now,
+                        }
+                    },
+                )
+    except Exception as e:
+        logger.warning("Notice during mentor seeding: %s", e)

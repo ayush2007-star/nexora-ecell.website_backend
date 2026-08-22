@@ -6,14 +6,17 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-
+from app.api.v1.management import router as management_router
 from app.api.v1.activity import router as activity_router
 from app.api.v1.admin import router as admin_router
+from app.api.v1.attendance import router as attendance_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.certificate import router as certificate_router
 from app.api.v1.event import router as event_router
 from app.api.v1.notification import router as notification_router
+from app.api.v1.participant import router as participant_router
 from app.api.v1.registration import router as registration_router
+from app.api.v1.scoring import router as scoring_router
 from app.api.v1.upload import router as upload_router
 
 from app.config import settings
@@ -76,8 +79,8 @@ async def lifespan(app: FastAPI):
         # ---------------------------------------------
 
         try:
-            from app.database.seed import seed_admin_user, seed_default_events
-            await seed_admin_user()
+            from app.database.seed import seed_admin_user, seed_default_events, seed_mentor_users
+            await seed_mentor_users()
             await seed_default_events()
         except Exception as seed_err:
             logger.warning("Database seeding notice: %s", seed_err)
@@ -147,6 +150,7 @@ app.add_middleware(
     "https://nexora-ecell.netlify.app",
     "http://localhost:3000",
     "http://localhost:5173",
+    "http://localhost:4173",
 ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -160,13 +164,16 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(registration_router)
+app.include_router(participant_router)
 app.include_router(admin_router)
+app.include_router(attendance_router)
+app.include_router(scoring_router)
 app.include_router(upload_router)
 app.include_router(certificate_router)
 app.include_router(event_router)
 app.include_router(notification_router)
 app.include_router(activity_router)
-
+app.include_router(management_router)
 
 # ---------------------------------------------------------
 # Static uploads & certificates

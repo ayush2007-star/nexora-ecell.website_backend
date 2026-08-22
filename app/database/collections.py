@@ -18,7 +18,9 @@ def get_collections():
             "settings": None,
             "counters": None,
             "events": None,
-            "certificate_templates": None
+            "certificate_templates": None,
+            "mentor_scores": None,
+            "management_updates": None,
         }
 
     return {
@@ -33,5 +35,7 @@ def get_collections():
         "settings": db["settings"],
         "counters": db["counters"],
         "events": db["events"],
-        "certificate_templates": db["certificate_templates"]
-    }
+        "certificate_templates": db["certificate_templates"],
+        "mentor_scores": db["mentor_scores"],
+        "management_updates": db["management_updates"],
+    }
