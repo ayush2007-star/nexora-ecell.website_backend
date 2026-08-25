@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     # ----------------------------
     # MongoDB
     # ----------------------------
-    MONGODB_URI: str = "mongodb+srv://Ayush2007:Ayush2007@cluster0.as4fh3o.mongodb.net/?appName=Cluster0"
+    MONGODB_URI: str = "MongoDB_URL"
     DATABASE_NAME: str = "nexora"
 
     # ----------------------------
@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     # ----------------------------
     # Frontend & CORS
     # ----------------------------
-    FRONTEND_URLS: str = "https://nexora-ecell.netlify.app/"
+    FRONTEND_URLS: str = "FRONTEND_URL"
 
     # ----------------------------
     # Registration & File Limits
